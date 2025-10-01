@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>Jobava London Trainer — Mobile</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+  <style>
+    :root {
+      --gap: 12px; --light:#eeeed2; --dark:#769656; --frame:#2b2f33; --bg:#0b0c0f; --panel:#0f1116;
+      --text:#e9eef5; --muted:#9da7b3; --good:#6be675; --bad:#ff6b6b; --accent:#1a66ff; --sel:#f6f669;
+    }
+    * { -webkit-tap-highlight-color: transparent; }
+    html, body { height:100%; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    header { padding: 12px 14px; border-bottom: 1px solid #1e2329; display:flex; justify-content:space-between; align-items:center; }
+    header h1 { margin:0; font-size:16px; letter-spacing:.2px; }
+    .badge { font-size:12px; padding:3px 8px; border:1px solid #343740; border-radius: 999px; color:#9da7b3; }
+    main { display:flex; flex-direction:column; gap: var(--gap); padding: var(--gap); padding-bottom: calc(env(safe-area-inset-bottom) + 80px); }
+    #boardWrap { display:flex; justify-content:center; }
+    #board {
+      width: min(92vmin, 100vw - 24px);
+      max-width: 560px;
+      aspect-ratio: 1 / 1;
+      border:8px solid var(--frame);
+      border-radius: 12px; overflow:hidden;
+      box-shadow: 0 10px 24px rgba(0,0,0,.35);
+    }
+    /* chess.com-like colors */
+    .white-1e1d7 { background: var(--light) !important; }
+    .black-3c85d { background: var(--dark) !important; }
+    .panel { background:var(--panel); border:1px solid #1e2329; border-radius: 12px; padding: 12px; }
+    .row { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+    .stack { display:flex; gap:8px; flex-wrap:wrap; }
+    button {
+      background:var(--accent); color:white; border:none; padding:10px 14px; border-radius:10px; font-weight:600; cursor:pointer;
+      -webkit-user-select:none; user-select:none;
+    }
+    button.ghost { background:transparent; color:#c9d3df; border:1px solid #2a2d36; }
+    button:disabled { opacity:.55; }
+    .pill { background:#182033; padding:4px 8px; border-radius:999px; border:1px solid #2a3963; font-size:12px; }
+    .feedback { min-height: 24px; font-weight:600; margin-top:6px; }
+    .good { color:var(--good); } .bad { color:var(--bad); }
+    .small { font-size:12px; color:var(--muted); }
+    .moves {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background:#0b0c0f; border:1px solid #23242a; border-radius:8px; padding:10px;
+      white-space: pre-wrap;
+    }
+    /* selection highlight */
+    .selected-square { outline: 3px solid var(--sel) !important; outline-offset:-3px; }
+    .target-square { box-shadow: inset 0 0 0 4px rgba(255,255,0,0.45); }
+    /* footer actions fixed for thumb reach */
+    .footerActions {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px);
+      background: rgba(15,17,22,0.98); border-top: 1px solid #1e2329;
+      display:flex; gap:8px; justify-content: center;
+      backdrop-filter: saturate(140%) blur(6px);
+    }
+    .footerActions button { flex:1; max-width: 180px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Jobava London — Mobile Trainer</h1>
+    <span class="badge">Tap-to-Move • v3</span>
+  </header>
+
+  <main>
+    <div id="boardWrap"><div id="board"></div></div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="pill">Pack: <b>Jobava — Starter Tactics</b></div>
+        <div class="pill">Puzzle <span id="idx">—</span></div>
+        <div class="pill">Side: <span id="sideToMove">—</span></div>
+        <div class="pill"><span id="step">0</span>/<span id="tot">0</span></div>
+      </div>
+
+      <div id="feedback" class="feedback"></div>
+
+      <div class="small">Target combo:</div>
+      <div id="target" class="moves" style="margin-top:6px">—</div>
+
+      <div class="small" style="margin-top:8px">Your moves:</div>
+      <div id="played" class="moves" style="margin-top:6px">—</div>
+
+      <div class="row" style="margin-top:8px">
+        <div class="pill">Correct: <b id="ok">0</b></div>
+        <div class="pill">Wrong: <b id="ng">0</b></div>
+        <div class="pill">Streak: <b id="st">0</b></div>
+      </div>
+    </div>
+  </main>
+
+  <div class="footerActions">
+    <button id="startBtn">Start</button>
+    <button class="ghost" id="restartBtn">Restart</button>
+    <button class="ghost" id="flipBtn">Flip</button>
+    <button class="ghost" id="showBtn">Show</button>
+    <button class="ghost" id="nextBtn" disabled>Next</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <script>
+    // --- Helpers ---
+    function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a;}
+    function parseSANList(s){ return s.split(/\s+/).filter(Boolean).map(t=>t.replace(/\d+\.(\.\.)?/g,'')); }
+    function buildPuzzleFromLine(lineStr){
+      const parts = lineStr.split('|');
+      const pre = parseSANList(parts[0] || '');
+      const sol = parseSANList(parts[1] || '');
+      const g = new Chess();
+      for(const m of pre){ if(!g.move(m,{sloppy:true})) break; }
+      return { fen:g.fen(), solution: sol };
+    }
+    function sideFromFEN(fen){ return fen.split(' ')[1]==='w' ? 'White' : 'Black'; }
+    function setText(id,v){ document.getElementById(id).textContent=v; }
+    function setHTML(id,v){ document.getElementById(id).innerHTML=v; }
+    function debounce(fn,ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args),ms); }; }
+
+    // --- Jobava pack (starter motifs) ---
+    const JOBAVA_PACK = [
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 c5 5. Nf3 Nc6 6. Bd3 Be7 7. Qe2 O-O 8. O-O-O a6 9. g4 b5 10. dxc5 Bxc5 11. g5 Nd7 12. Bxh7+ Kxh7 13. Nd4 Nxd4 14. exd4 Be7 | 15. Qh5+ Kg8 16. Rd3 e5 17. Rh3 f5 18. g6 Bh4 19. Rxh4 Qxh4 20. Qxh4 Nf6",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 c5 5. Nb5 Na6 6. c3 Be7 7. a4 O-O 8. Nf3 Bd7 9. h3 Bc6 | 10. Ne5 Be8 11. Bd3 Nd7 12. Nxd7 Qxd7 13. h4 c4 14. Bc2 f5 15. g4 fxg4 16. Qxg4",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 a6 5. g4 c5 6. g5 Nfd7 7. h4 Nc6 8. Nf3 b5 9. h5 Qb6 10. Bg2 b4 11. Ne2 a5 | 12. g6 hxg6 13. hxg6 Rxh1+ 14. Bxh1 fxg6 15. Qd3 Kf7 16. O-O-O Ba6 17. Qd2",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 c5 5. Nf3 Nc6 6. Nb5 e5 7. Nxe5 cxd4 8. exd4 Be7 | 9. Nxc6 bxc6 10. Nc7+ Kf8 11. Nxa8 Bg4 12. Be2 Bxe2 13. Qxe2 Qxa8",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 c6 4. e3 Bf5 5. f3 e6 6. g4 Bg6 7. h4 h6 8. Nge2 Bd6 9. Qd2 Qc7 10. O-O-O Nbd7 11. Bxd6 Qxd6 | 12. Nf4 Bh7 13. g5 Ng8 14. e4 dxe4 15. fxe4 O-O-O 16. e5 Qe7 17. g6",
+      "1. d4 d5 2. Nc3 e6 3. Bf4 Nf6 4. e3 c5 5. Nb5 Na6 6. c3 Be7 7. a4 O-O 8. h3 | 9. dxc5 Nxc5 10. Nc7 Rb8 11. Nxd5 Nxd5 12. Bxb8",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 Bd6 5. Nf3 O-O 6. Bd3 c5 7. dxc5 Bxc5 8. Qe2 Nc6 9. O-O-O Qa5 | 10. Kb1 Bb4 11. Nb5 a6 12. Nbd4 Ne4 13. Nb3 Qb6 14. Bxe4 dxe4 15. Ng5",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 c6 4. e3 Qb6 5. Rb1 Bf5 6. Nf3 Nbd7 7. Bd3 Bxd3 8. cxd3 e6 | 9. O-O Be7 10. b4 O-O 11. a4 a6 12. Qc2 Rfc8 13. Rfc1",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 c5 5. g4 Nc6 6. g5 Nd7 7. h4 a6 8. h5 b5 9. Nf3 Bb7 10. Bh3 | 11. Qd2 Be7 12. O-O-O Qa5 13. Kb1 b4 14. Ne2 Nb6 15. g6",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 a6 5. Nf3 c5 6. dxc5 Bxc5 7. Bd3 Nc6 8. O-O O-O | 9. e4 d4 10. Ne2 Nh5 11. Bg5 f6 12. Bd2 f5 13. c3",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 e6 4. e3 Bd6 5. Bxd6 Qxd6 6. f4 c5 7. Nf3 Nc6 | 8. Ne5 O-O 9. Qd2 a6 10. O-O-O b5 11. dxc5 Qxc5 12. Nxc6",
+      "1. d4 d5 2. Nc3 Nf6 3. Bf4 c6 4. e3 Bf5 5. Be2 e6 6. g4 Bg6 7. h4 h6 8. Nh3 Nbd7 9. f3 Bb4 10. Kf2 | 11. Bd3 Bxd3 12. cxd3 Qe7 13. Qe2 e5 14. dxe5 Nxe5 15. d4"
+    ];
+
+    // --- State ---
+    let board, game, current=null, step=0, orientation='white', selected=null, stats={ok:0, ng:0, st:0};
+    let pack = JOBAVA_PACK.map(buildPuzzleFromLine);
+    let order = [];
+
+    function updateHUD(){
+      setText('idx', order.length ? (order.indexOf(current)+1)+'/'+order.length : '—');
+      setText('sideToMove', sideFromFEN(game.fen()));
+      setText('step', Math.min(step, pack[current].solution.length));
+      setText('tot', pack[current].solution.length);
+      setHTML('target', pack[current].solution.join(' ') || '—');
+      const hist = game.history();
+      setHTML('played', hist.length ? hist.join(' ') : '—');
+      document.getElementById('nextBtn').disabled = (current===null);
+    }
+    function resetStats(){ stats={ok:0, ng:0, st:0}; setText('ok',0); setText('ng',0); setText('st',0); }
+    function feedback(msg, ok=null){
+      const el = document.getElementById('feedback');
+      el.textContent = msg || '';
+      el.className = 'feedback ' + (ok===true ? 'good' : ok===false ? 'bad' : '');
+    }
+
+    function loadPuzzle(idx){
+      current = idx;
+      game = new Chess();
+      game.load(pack[idx].fen);
+      orientation = (game.turn()==='w') ? 'white' : 'black';
+      board.orientation(orientation);
+      board.position(game.fen());
+      step = 0; selected = null; clearHighlights();
+      feedback('Find the best sequence.');
+      updateHUD();
+      document.getElementById('nextBtn').disabled = true;
+    }
+
+    function start(){
+      if (!pack.length){ feedback('No puzzles loaded.', false); return; }
+      order = shuffle([...pack.keys()]);
+      resetStats();
+      loadPuzzle(order[0]);
+    }
+    function nextPuzzle(){
+      if (!order.length) return;
+      const i = (order.indexOf(current)+1) % order.length;
+      loadPuzzle(order[i]);
+    }
+    function restartPuzzle(){
+      if (current===null) return;
+      const fen = pack[current].fen;
+      game = new Chess(); game.load(fen);
+      board.position(fen);
+      step = 0; selected=null; clearHighlights();
+      feedback('Restarted the position.');
+      updateHUD();
+    }
+
+    // --- Tap-to-move ---
+    function squareElList(){ return document.querySelectorAll('#board .square-55d63'); }
+    function getSquareFromEl(el){
+      // chessboard.js assigns data-square="e4" to squares
+      const ds = el.getAttribute('data-square');
+      if (ds) return ds;
+      // fallback: parse class like 'square-55d63 white-1e1d7 square-e4'
+      const cls = el.className.split(/\s+/);
+      const sq = cls.find(c => /^square-?[a-h][1-8]$/.test(c));
+      return sq ? sq.replace('square-','').replace('square','') : null;
+    }
+    function clearHighlights(){
+      squareElList().forEach(sq=>{
+        sq.classList.remove('selected-square');
+        sq.classList.remove('target-square');
+      });
+    }
+    function highlightSquare(sq){
+      clearHighlights();
+      const el = document.querySelector(`#board .square-55d63[data-square="${sq}"]`) ||
+                 document.querySelector(`#board .square-${sq}`) ||
+                 Array.from(squareElList()).find(x => getSquareFromEl(x)===sq);
+      if (el) el.classList.add('selected-square');
+    }
+
+    function userAttemptMove(from, to){
+      const wantSAN = pack[current].solution[step];
+      if (!wantSAN){ feedback('Puzzle complete. Tap Next.', true); return; }
+      // Try generating legal move(s) matching from->to, then compare SAN to expected (ignoring check/mate marks)
+      const moves = game.moves({ verbose:true });
+      const candidate = moves.find(m => m.from===from && m.to===to) || null;
+      if (!candidate){ feedback('Illegal move.', false); clearHighlights(); selected=null; return; }
+      const mv = game.move(candidate);
+      board.position(game.fen());
+      const userSAN = mv.san.replace(/[+#]/g,'');
+      const want = wantSAN.replace(/[+#]/g,'');
+      if (userSAN === want){
+        step++;
+        feedback('Nice!');
+        if (step >= pack[current].solution.length){
+          stats.ok++; stats.st++; setText('ok', stats.ok); setText('st', stats.st);
+          feedback('Puzzle solved! ✔', true);
+          document.getElementById('nextBtn').disabled = false;
+        }
+      } else {
+        // Undo on wrong move
+        game.undo(); board.position(game.fen());
+        stats.ng++; stats.st=0; setText('ng', stats.ng); setText('st', stats.st);
+        feedback('That isn\'t the combo move. Tap Show to watch it.', false);
+      }
+      selected=null; clearHighlights();
+      updateHUD();
+    }
+
+    function bindSquareClicks(){
+      // Remove old listeners by cloning (simple approach)
+      squareElList().forEach(el=>{
+        const clone = el.cloneNode(true);
+        el.parentNode.replaceChild(clone, el);
+      });
+      // Re-select
+      squareElList().forEach(el=>{
+        el.addEventListener('click', ()=>{
+          if (current===null) return;
+          const sq = getSquareFromEl(el);
+          if (!sq) return;
+          if (!selected){
+            // First tap: must select a piece of side to move
+            const piece = game.get(sq);
+            if (!piece || piece.color !== game.turn()){ feedback('Select a piece to move.', null); return; }
+            selected = sq; highlightSquare(sq);
+          } else if (selected === sq){
+            // tap same square: deselect
+            selected = null; clearHighlights();
+          } else {
+            // Second tap: try move
+            userAttemptMove(selected, sq);
+          }
+        }, { passive:true });
+      });
+    }
+
+    function showSolution(){
+      if (current===null) return;
+      const startFEN = pack[current].fen;
+      game = new Chess(); game.load(startFEN);
+      board.position(startFEN);
+      step = 0; selected=null; clearHighlights();
+      const sol = pack[current].solution.slice();
+      function anim(){
+        if (!sol.length){ feedback('That is the full solution. Tap Next to continue.', true); document.getElementById('nextBtn').disabled=false; updateHUD(); return; }
+        const san = sol.shift();
+        const mv = game.move(san, {sloppy:true});
+        if (!mv){ updateHUD(); return; }
+        board.position(game.fen());
+        step++;
+        updateHUD();
+        setTimeout(anim, 600);
+      }
+      anim();
+    }
+
+    function flip(){
+      orientation = (orientation==='white') ? 'black' : 'white';
+      board.orientation(orientation);
+      // keep highlights consistent after flip
+      bindSquareClicks();
+    }
+
+    function initBoard(){
+      board = Chessboard('board', { position:'start', draggable:false });
+      // handle initial binding after board draws
+      setTimeout(bindSquareClicks, 30);
+    }
+
+    function resizeBoard(){
+      // chessboard.js supports resize(), but we used a fixed container; just trigger redraw
+      if (board && typeof board.resize === 'function') board.resize();
+      // after resize, DOM is redrawn; re-bind listeners
+      setTimeout(bindSquareClicks, 30);
+    }
+
+    // --- Wire UI ---
+    function init(){
+      initBoard();
+      game = new Chess();
+      ['startBtn','nextBtn','restartBtn','flipBtn','showBtn'].forEach(id=>{
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id==='startBtn') el.addEventListener('click', start, {passive:true});
+        if (id==='nextBtn') el.addEventListener('click', nextPuzzle, {passive:true});
+        if (id==='restartBtn') el.addEventListener('click', restartPuzzle, {passive:true});
+        if (id==='flipBtn') el.addEventListener('click', flip, {passive:true});
+        if (id==='showBtn') el.addEventListener('click', showSolution, {passive:true});
+      });
+      window.addEventListener('resize', debounce(resizeBoard, 150));
+      // Auto-start so you see something right away
+      start();
+    }
+    window.addEventListener('load', init);
+  </script>
+</body>
+</html>
